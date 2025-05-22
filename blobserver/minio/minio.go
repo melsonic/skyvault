@@ -4,22 +4,40 @@ import (
 	"context"
 	"errors"
 	"log"
+	"os"
 
+	"github.com/joho/godotenv"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
 var (
 	MinioClient *minio.Client
-	endpoint    = "http://127.0.0.1:9000"
-	accessKey   = "KiDRzW60OpTZswfxgrvC"
-	secretKey   = "hXyf0i2TsgRDR7EDfsrttAqLi4G9Y3ZFST2Y0fFs"
-	bucketName  = "skyvault"
-	location    = "us-east-1"
-	filePath    = "."
+	endpoint    string
+	accessKey   string
+	secretKey   string
+	bucketName  string
+	location    string
+	filePath    string
 )
 
 func InitMinio() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
+	endpoint = os.Getenv("MINIO_ENDPOINT")
+	accessKey = os.Getenv("ACCESSKEY")
+	secretKey = os.Getenv("SECRETKEY")
+	bucketName = os.Getenv("BUCKETNAME")
+	location = os.Getenv("LOCATION")
+	filePath = os.Getenv("FILEPATH")
+
+	if bucketName == "" {
+		log.Fatal("Please specify a bucket name in .env file")
+	}
+
 	client, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
 		Secure: true,
