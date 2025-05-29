@@ -16,11 +16,11 @@ func metadataSaveHandler(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Invalid request body"))
+		w.Write([]byte("Error reading request body"))
 		return
 	}
-	var data *types.Metadata
-	err = json.Unmarshal(body, data)
+	var data types.Metadata
+	err = json.Unmarshal(body, &data)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("Invalid request body"))

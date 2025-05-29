@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx"
@@ -23,11 +24,16 @@ func connectDB() error {
 	if err != nil {
 		log.Fatal("Error loading .env file")
 	}
+	portString := os.Getenv("DB_PORT")
+	port, err := strconv.ParseUint(portString, 10, 16)
+	if err != nil {
+		return err
+	}
 	dbConfig := pgx.ConnConfig{
-		Host:     os.Getenv("HOST"),
-		Port:     5432,
-		User:     os.Getenv("USER"),
-		Password: os.Getenv("PASSWORD"),
+		Host:     os.Getenv("DB_HOST"),
+		Port:     uint16(port),
+		User:     os.Getenv("DB_USER"),
+		Password: os.Getenv("DB_PASSWORD"),
 	}
 	DBConn, err = pgx.Connect(dbConfig)
 	if err != nil {
@@ -46,6 +52,13 @@ func setupDB() error {
 			HASH_IDS text[]
 		)
 	`)
+	if err != nil {
+		return err
+	}
+	err = DBConn.QueryRow("SELECT ID FROM NODE WHERE NAME = $1", ROOT_NAME).Scan(&ROOT_NAME)
+	if err != nil {
+		err = DBConn.QueryRow(`INSERT INTO NODE (FOLDER, NAME) VALUES ($1, $2) RETURNING ID`, true, ROOT_NAME).Scan(&ROOT_FOLDER)
+	}
 	return err
 }
 
@@ -58,9 +71,9 @@ func InitDB() error {
 	return err
 }
 
-func SaveMetadata(data *types.Metadata) error {
+func SaveMetadata(data types.Metadata) error {
 	path := strings.Split(data.FilePath, "/")
-	var parentFolderId int
+	parentFolderId := ROOT_FOLDER
 	var index int = 0
 	for index = 0; index < len(path); index++ {
 		var tempParentId int
@@ -70,9 +83,11 @@ func SaveMetadata(data *types.Metadata) error {
 		}
 		parentFolderId = tempParentId
 	}
+	fmt.Println(index)
 	for index < len(path) {
 		var tempParentId int
-		err := DBConn.QueryRow("INSERT INTO NODE (FOLDER, NAME, PARENT_FOLDER) VALUES ($1, $2, $2) RETURNING ID", true, path[index], parentFolderId).Scan(&tempParentId)
+		fmt.Println(path[index])
+		err := DBConn.QueryRow("INSERT INTO NODE (FOLDER, NAME, PARENT_FOLDER) VALUES ($1, $2, $3) RETURNING ID", true, path[index], parentFolderId).Scan(&tempParentId)
 		if err != nil {
 			return err
 		}
@@ -91,13 +106,13 @@ func SaveMetadata(data *types.Metadata) error {
 		hashes += ","
 	}
 	hashes += "}"
-	_, err := DBConn.Exec(`INSERT INTO NODE (FOLDER, NAME, PARENT_FOLDER, HASH_IDS) VALUES ($1, '$2', $3, $4)`, data.IsFolder, data.FileName, parentFolderId, hashes)
+	_, err := DBConn.Exec(`INSERT INTO NODE (FOLDER, NAME, PARENT_FOLDER, HASH_IDS) VALUES ($1, $2, $3, $4)`, data.IsFolder, data.FileName, parentFolderId, hashes)
 	return err
 }
 
 func FetchMetadata(fileName string) ([]string, error) {
 	var hashIDs pgtype.TextArray
-	err := DBConn.QueryRow("SELECT HASH_IDS FROM FILE WHERE FILE_NAME=$1", fileName).Scan(&hashIDs)
+	err := DBConn.QueryRow("SELECT HASH_IDS FROM NODE WHERE NAME=$1", fileName).Scan(&hashIDs)
 	if err != nil {
 		return nil, err
 	}
