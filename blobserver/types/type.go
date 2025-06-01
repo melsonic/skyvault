@@ -1,11 +1,11 @@
 package types
 
 type BlobData struct {
-	Hash string
-	Data []byte
+	Hash string `json:"hash"`
+	Data []byte `json:"data"`
 }
 
 type BlobDataResponse struct {
-	Data    []byte
-	Message string
+	Data    []byte `json:"data"`
+	Message string `json:"message"`
 }

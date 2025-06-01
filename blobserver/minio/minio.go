@@ -1,8 +1,11 @@
 package minio
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -18,7 +21,6 @@ var (
 	secretKey   string
 	bucketName  string
 	location    string
-	filePath    string
 )
 
 func InitMinio() {
@@ -32,7 +34,6 @@ func InitMinio() {
 	secretKey = os.Getenv("SECRETKEY")
 	bucketName = os.Getenv("BUCKETNAME")
 	location = os.Getenv("LOCATION")
-	filePath = os.Getenv("FILEPATH")
 
 	if bucketName == "" {
 		log.Fatal("Please specify a bucket name in .env file")
@@ -40,11 +41,13 @@ func InitMinio() {
 
 	client, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
-		Secure: true,
+		Secure: false,
 	})
 	if err != nil {
 		log.Fatal(err.Error())
 	}
+
+	fmt.Println("Connected succesfully!")
 	MinioClient = client
 
 	err = MinioClient.MakeBucket(context.Background(), bucketName, minio.MakeBucketOptions{
@@ -53,7 +56,7 @@ func InitMinio() {
 
 	if err != nil {
 		exists, errBucketExists := MinioClient.BucketExists(context.Background(), bucketName)
-		if exists && errBucketExists != nil {
+		if exists && errBucketExists == nil {
 			log.Printf("%s already exists\n", bucketName)
 		} else {
 			log.Fatal(err.Error())
@@ -67,9 +70,10 @@ func UploadChunk(hash string, data []byte) error {
 	if hash == "" || len(data) == 0 {
 		return errors.New("Invalid request data!")
 	}
+	contentType := "application/octet-stream"
 	// saving the chunk with name as 'hash'
-	_, err := MinioClient.FPutObject(context.Background(), bucketName, hash, filePath, minio.PutObjectOptions{
-		ContentType: "application/octet-stream",
+	_, err := MinioClient.PutObject(context.Background(), bucketName, hash, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{
+		ContentType: contentType,
 	})
 	return err
 }
@@ -82,9 +86,10 @@ func GetChunk(hash string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var result []byte
+	stat, _ := object.Stat()
+	result := make([]byte, stat.Size)
 	_, err = object.Read(result)
-	if err != nil {
+	if err != nil && err != io.EOF {
 		return nil, err
 	}
 	return result, nil

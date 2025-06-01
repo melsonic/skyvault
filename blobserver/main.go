@@ -38,20 +38,14 @@ func chunkSaveHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func chunkGetHandler(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
+	requestQueryMap := r.URL.Query()
+	hash := requestQueryMap.Get("hash")
+	if hash == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Invalid request body"))
+		w.Write([]byte("Query parameter 'hash' missing!"))
 		return
 	}
-	var data types.BlobData
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Invalid request body format"))
-		return
-	}
-	content, err := minio.GetChunk(data.Hash)
+	content, err := minio.GetChunk(hash)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(err.Error()))
@@ -70,6 +64,7 @@ func chunkGetHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	minio.InitMinio()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/chunk/save", chunkSaveHandler)
 	mux.HandleFunc("/chunk/get", chunkGetHandler)
