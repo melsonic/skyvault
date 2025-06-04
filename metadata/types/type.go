@@ -7,4 +7,5 @@ type Metadata struct {
 	FilePath string   `json:"filepath"`
 	IsFolder bool     `json:"is_folder"`
 	Hashes   []string `json:"hashes"`
+	FileSize int      `json:"filesize"`
 }

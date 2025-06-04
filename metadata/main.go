@@ -36,10 +36,9 @@ func metadataSaveHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("File metadata saved successfully!"))
-	return
 }
 
-func metadataGetHandler(w http.ResponseWriter, r *http.Request) {
+func metadataFetchHandler(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -65,6 +64,11 @@ func metadataGetHandler(w http.ResponseWriter, r *http.Request) {
 		Hashes: hashes,
 	}
 	response, err := json.Marshal(md)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 	w.Write(response)
 }
@@ -77,7 +81,7 @@ func main() {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/metadata/save", metadataSaveHandler)
-	mux.HandleFunc("/metadata/get", metadataGetHandler)
+	mux.HandleFunc("/metadata/fetch", metadataFetchHandler)
 	server := &http.Server{
 		Addr:           ":8001",
 		Handler:        mux,

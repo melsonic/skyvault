@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/pgtype"
 	"github.com/joho/godotenv"
 	"github.com/melsonic/skyvault/metadata/types"
+	"github.com/melsonic/skyvault/metadata/util"
 )
 
 var (
@@ -34,6 +35,7 @@ func connectDB() error {
 		Port:     uint16(port),
 		User:     os.Getenv("DB_USER"),
 		Password: os.Getenv("DB_PASSWORD"),
+		Database: os.Getenv("DB_DATABASE"),
 	}
 	DBConn, err = pgx.Connect(dbConfig)
 	if err != nil {
@@ -44,19 +46,33 @@ func connectDB() error {
 
 func setupDB() error {
 	_, err := DBConn.Exec(`
+		CREATE TABLE IF NOT EXISTS NODE_MD (
+			ID bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+			FILE_TYPE text NOT NULL,
+			CREATED_AT timestamptz NOT NULL,
+			LAST_ACCESS timestamptz NOT NULL,
+			LAST_MODIFIED timestamptz NOT NULL,
+			FILE_SIZE bigint NOT NULL
+		)
+	`)
+	if err != nil {
+		return err
+	}
+	_, err = DBConn.Exec(`
 		CREATE TABLE IF NOT EXISTS NODE (
 			ID bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 			FOLDER boolean NOT NULL,
 			NAME text NOT NULL,
 			PARENT_FOLDER bigint,
+			FILE_MD bigint references NODE_MD(ID),
 			HASH_IDS text[]
 		)
 	`)
 	if err != nil {
 		return err
 	}
-	err = DBConn.QueryRow("SELECT ID FROM NODE WHERE NAME = $1", ROOT_NAME).Scan(&ROOT_NAME)
-	if err != nil {
+	_ = DBConn.QueryRow("SELECT ID FROM NODE WHERE NAME = $1", ROOT_NAME).Scan(&ROOT_FOLDER)
+	if ROOT_FOLDER == -1 {
 		err = DBConn.QueryRow(`INSERT INTO NODE (FOLDER, NAME) VALUES ($1, $2) RETURNING ID`, true, ROOT_NAME).Scan(&ROOT_FOLDER)
 	}
 	return err
@@ -97,6 +113,16 @@ func SaveMetadata(data types.Metadata) error {
 	if data.IsFolder {
 		return nil
 	}
+	// Below code runs only when the input is a file
+	fileExtension, err := util.GetFileExtension(data.FileName)
+	if err != nil {
+		return err
+	}
+	var nodeMetaDataId int = -1
+	err = DBConn.QueryRow("INSERT INTO NODE_MD (FILE_TYPE, CREATED_AT, LAST_ACCESS, LAST_MODIFIED, FILE_SIZE) VALUES ($1, current_timestamp, current_timestamp, current_timestamp, $2) RETURNING ID", fileExtension, data.FileSize).Scan(&nodeMetaDataId)
+	if err != nil {
+		return err
+	}
 	hashes := "{"
 	for i := range data.Hashes {
 		hashes += fmt.Sprintf(`"%s"`, data.Hashes[i])
@@ -106,7 +132,7 @@ func SaveMetadata(data types.Metadata) error {
 		hashes += ","
 	}
 	hashes += "}"
-	_, err := DBConn.Exec(`INSERT INTO NODE (FOLDER, NAME, PARENT_FOLDER, HASH_IDS) VALUES ($1, $2, $3, $4)`, data.IsFolder, data.FileName, parentFolderId, hashes)
+	_, err = DBConn.Exec(`INSERT INTO NODE (FOLDER, NAME, PARENT_FOLDER, FILE_MD, HASH_IDS) VALUES ($1, $2, $3, $4, $5)`, data.IsFolder, data.FileName, parentFolderId, nodeMetaDataId, hashes)
 	return err
 }
 
