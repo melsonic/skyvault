@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"log/slog"
@@ -28,7 +28,7 @@ func metadataSaveHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Perform Operation to save Metadata
-	nodeID, err := db.SaveMetadata(data)
+	nodeID, err := db.SaveMetadata(&data)
 	if err != nil {
 		slog.Error(err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
@@ -68,6 +68,18 @@ func metadataFetchHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(response)
 }
 
+func metadataDeleteHandler(w http.ResponseWriter, r *http.Request) {
+	nodeID := r.PathValue("nodeid")
+	err := db.DeleteMetadata(nodeID)
+	if err != nil {
+		slog.Error("error deleting metadata", "id", nodeID, "error", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	w.Write([]byte("node deleted!"))
+}
+
 func main() {
 	err := db.InitDB()
 	if err != nil {
@@ -77,6 +89,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /metadata/{nodeid}", metadataFetchHandler)
 	mux.HandleFunc("POST /metadatas", metadataSaveHandler)
+	mux.HandleFunc("DELETE /metadata/{nodeid}", metadataDeleteHandler)
 	server := &http.Server{
 		Addr:           ":8001",
 		Handler:        mux,

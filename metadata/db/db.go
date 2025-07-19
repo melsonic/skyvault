@@ -2,7 +2,6 @@ package db
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"log/slog"
 	"os"
@@ -17,7 +16,7 @@ import (
 )
 
 var (
-	DBConn      *pgx.Conn
+	DBConnPool  *pgx.ConnPool
 	ROOT_FOLDER = -1
 	ROOT_NAME   = "root"
 )
@@ -32,53 +31,60 @@ func connectDB() error {
 	if err != nil {
 		return err
 	}
-	dbConfig := pgx.ConnConfig{
-		Host:     os.Getenv("DB_HOST"),
-		Port:     uint16(port),
-		User:     os.Getenv("DB_USER"),
-		Password: os.Getenv("DB_PASSWORD"),
-		Database: os.Getenv("DB_DATABASE"),
+	dbConfig := pgx.ConnPoolConfig{
+		ConnConfig: pgx.ConnConfig{
+			Host:     os.Getenv("DB_HOST"),
+			Port:     uint16(port),
+			User:     os.Getenv("DB_USER"),
+			Password: os.Getenv("DB_PASSWORD"),
+			Database: os.Getenv("DB_DATABASE"),
+		},
+		AfterConnect: func(c *pgx.Conn) error {
+			slog.Info("DB connected!")
+			return nil
+		},
 	}
-	DBConn, err = pgx.Connect(dbConfig)
+	DBConnPool, err = pgx.NewConnPool(dbConfig)
 	if err != nil {
 		return err
 	}
-	slog.Info("database connected!")
 	return nil
 }
 
 func setupDB() error {
-	_, err := DBConn.Exec(`
-		CREATE TABLE IF NOT EXISTS NODE_MD (
-			ID bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-			FILE_TYPE text NOT NULL,
-			CREATED_AT timestamptz NOT NULL,
-			LAST_ACCESS timestamptz NOT NULL,
-			LAST_MODIFIED timestamptz NOT NULL,
-			FILE_SIZE bigint NOT NULL
-		)
-	`)
-	if err != nil {
-		slog.Error("error creating NODE_MD table", "error", err.Error())
-		return errors.New("error creating node_md table")
-	}
-	_, err = DBConn.Exec(`
+	_, err := DBConnPool.Exec(`
 		CREATE TABLE IF NOT EXISTS NODE (
 			ID bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 			FOLDER boolean NOT NULL,
 			NAME text NOT NULL,
 			PARENT_FOLDER bigint,
-			FILE_MD bigint references NODE_MD(ID),
-			HASH_IDS text[]
+			CREATED_AT timestamptz NOT NULL,
+			LAST_ACCESS timestamptz NOT NULL,
+			LAST_MODIFIED timestamptz NOT NULL
 		)
 	`)
 	if err != nil {
 		slog.Error("error creating NODE table", "error", err.Error())
 		return errors.New("error creating node table")
 	}
-	_ = DBConn.QueryRow("SELECT ID FROM NODE WHERE NAME = $1", ROOT_NAME).Scan(&ROOT_FOLDER)
+
+	_, err = DBConnPool.Exec(`
+		CREATE TABLE IF NOT EXISTS FILE_METADATA (
+			ID bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+			FILE_TYPE text NOT NULL,
+			FILE_SIZE bigint NOT NULL,
+			HASH_IDS text[] NOT NULL,
+			NODE_ID bigint references NODE(ID)
+		)
+	`)
+	if err != nil {
+		slog.Error("error creating FILE_METADATA table", "error", err.Error())
+		return errors.New("error creating FILE_METADATA table")
+	}
+
+	_ = DBConnPool.QueryRow("SELECT ID FROM NODE WHERE NAME = $1", ROOT_NAME).Scan(&ROOT_FOLDER)
 	if ROOT_FOLDER == -1 {
-		err = DBConn.QueryRow(`INSERT INTO NODE (FOLDER, NAME) VALUES ($1, $2) RETURNING ID`, true, ROOT_NAME).Scan(&ROOT_FOLDER)
+		err = DBConnPool.QueryRow(`INSERT INTO NODE (FOLDER, NAME, CREATED_AT, LAST_ACCESS, LAST_MODIFIED) VALUES ($1, $2, current_timestamp, current_timestamp, current_timestamp) RETURNING ID`, true, ROOT_NAME).Scan(&ROOT_FOLDER)
 		if err != nil {
 			slog.Error("error inserting root node", "error", err.Error())
 			return errors.New("error inserting root node")
@@ -96,7 +102,7 @@ func InitDB() error {
 	return err
 }
 
-func SaveMetadata(data types.Metadata) (int, error) {
+func SaveMetadata(data *types.Metadata) (int, error) {
 	fileExtension, err := util.GetFileExtension(data.FileName)
 	if !data.IsFolder && err != nil {
 		slog.Error("unsupported file format")
@@ -107,7 +113,12 @@ func SaveMetadata(data types.Metadata) (int, error) {
 	var index int = 0
 	var currentFolderID int
 	for index = 0; index < len(path); index++ {
-		err := DBConn.QueryRow(`
+
+		if path[index] == "" {
+			continue
+		}
+
+		err := DBConnPool.QueryRow(`
 			SELECT 
 				ID 
 			FROM 
@@ -120,76 +131,72 @@ func SaveMetadata(data types.Metadata) (int, error) {
 		}
 		folderID = currentFolderID
 	}
-	for index < len(path) {
-		err := DBConn.QueryRow(`
-			INSERT INTO NODE (FOLDER, NAME, PARENT_FOLDER) 
+	for ; index < len(path); index++ {
+
+		if path[index] == "" {
+			continue
+		}
+
+		err := DBConnPool.QueryRow(`
+			INSERT INTO NODE (FOLDER, NAME, PARENT_FOLDER, CREATED_AT, LAST_ACCESS, LAST_MODIFIED) 
 			VALUES 
-				($1, $2, $3) RETURNING ID
+				($1, $2, $3, current_timestamp, current_timestamp, current_timestamp) 
+			RETURNING ID
 		`, true, path[index], folderID).Scan(&currentFolderID)
 		if err != nil {
 			slog.Error("error inserting node", "error", err.Error(), "nodename", path[index])
 			return -1, errors.New("error saving node")
 		}
+
 		folderID = currentFolderID
-		index++
 	}
 	if data.IsFolder {
 		return folderID, nil
 	}
 	// Below code runs only when the input is a file
-	var nodeMetaDataID int = -1
-	err = DBConn.QueryRow(`
-		INSERT INTO NODE_MD (
-			FILE_TYPE, CREATED_AT, LAST_ACCESS, 
-			LAST_MODIFIED, FILE_SIZE
-		) 
-		VALUES 
-		(
-			$1, current_timestamp, current_timestamp, 
-			current_timestamp, $2
-		) RETURNING ID
-	`, fileExtension, data.FileSize).Scan(&nodeMetaDataID)
-	if err != nil {
-		slog.Error("error inserting node", "error", err.Error())
-		return -1, errors.New("error saving node")
-	}
-	hashes := "{"
-	for i := range data.Hashes {
-		hashes += fmt.Sprintf(`"%s"`, data.Hashes[i])
-		if i == len(data.Hashes)-1 {
-			break
-		}
-		hashes += ","
-	}
-	hashes += "}"
+	hashes := util.FormatHashedChunks(data.Hashes)
+
 	var nodeID int
-	err = DBConn.QueryRow(`
+	err = DBConnPool.QueryRow(`
 		INSERT INTO NODE (
-			FOLDER, NAME, PARENT_FOLDER, FILE_MD, 
-			HASH_IDS
+			FOLDER, NAME, PARENT_FOLDER, CREATED_AT, LAST_ACCESS, LAST_MODIFIED
 		) 
 		VALUES 
-			($1, $2, $3, $4, $5)
-		RETURNING ID
-	`, data.IsFolder, data.FileName, folderID, nodeMetaDataID, hashes).Scan(&nodeID)
+			($1, $2, $3, current_timestamp, current_timestamp, current_timestamp)
+		RETURNING ID, CREATED_AT, LAST_ACCESS, LAST_MODIFIED
+	`, data.IsFolder, data.FileName, folderID).Scan(&nodeID, &data.CreatedAt, &data.LastAccess, &data.LastModified)
 	if err != nil {
 		slog.Error("error saving file", "error", err.Error(), "filename", data.FileName)
 		return -1, errors.New("error saving file")
 	}
+
+	_, err = DBConnPool.Exec(`
+		INSERT INTO FILE_METADATA (
+			FILE_TYPE, FILE_SIZE, NODE_ID, HASH_IDS
+		) 
+		VALUES 
+		(
+			$1, $2, $3, $4
+		)
+	`, fileExtension, data.FileSize, nodeID, hashes)
+	if err != nil {
+		slog.Error("error inserting node", "error", err.Error())
+		return -1, errors.New("error saving node")
+	}
 	return nodeID, nil
 }
 
-func FetchMetadata(fileNodeId string) (*types.Metadata, error) {
+func FetchMetadata(nodeID string) (*types.Metadata, error) {
 	var hashIDs pgtype.TextArray
 	var fileNodeData types.Metadata
-	err := DBConn.QueryRow(`
+	err := DBConnPool.QueryRow(`
 		SELECT 
-			NODE_MD.CREATED_AT, NODE_MD.LAST_ACCESS, NODE_MD.LAST_MODIFIED, NODE_MD.FILE_SIZE, NODE.HASH_IDS, NODE.NAME 
+			NODE.CREATED_AT, NODE.LAST_ACCESS, NODE.LAST_MODIFIED, FILE_METADATA.FILE_SIZE, FILE_METADATA.HASH_IDS, NODE.NAME 
 		FROM 
-			NODE, NODE_MD 
+			NODE, FILE_METADATA 
 		WHERE 
-			NODE.ID=$1
-	`, fileNodeId).Scan(&fileNodeData.CreatedAt, &fileNodeData.LastAccess, &fileNodeData.LastModified, &fileNodeData.FileSize, &hashIDs, &fileNodeData.FileName)
+			NODE.ID = FILE_METADATA.NODE_ID AND NODE.ID=$1
+	`, nodeID).Scan(&fileNodeData.CreatedAt, &fileNodeData.LastAccess, &fileNodeData.LastModified, &fileNodeData.FileSize, &hashIDs, &fileNodeData.FileName)
 	if err != nil {
 		slog.Error("error in querying node db", "error", err.Error())
 		return nil, errors.New("error fetching data from db")
@@ -200,4 +207,78 @@ func FetchMetadata(fileNodeId string) (*types.Metadata, error) {
 	}
 	fileNodeData.Hashes = hashes
 	return &fileNodeData, nil
+}
+
+// In case of delete, we need to delete all the child folders/files
+func DeleteMetadata(nodeID string) error {
+	id, err := strconv.ParseInt(nodeID, 10, 64)
+	if err != nil {
+		slog.Error("invalid nodeID", "id", nodeID, "error", err.Error())
+		return errors.New("invalid node id")
+	}
+	queue := []int64{id}
+	nodeIDs := []int64{id}
+
+	// bfs
+	for len(queue) > 0 {
+		currentNodeID := queue[0]
+		queue = queue[1:]
+		rows, err := DBConnPool.Query(`
+			SELECT 
+				ID
+			FROM 
+				NODE
+			WHERE
+				PARENT_FOLDER = $1
+		`, currentNodeID)
+		if err != nil {
+			slog.Error("error travelling all nodes", "error", err.Error())
+			return errors.New("error deleting node")
+		}
+		defer rows.Close()
+
+		var id int64
+		for rows.Next() {
+			if err := rows.Scan(&id); err != nil {
+				slog.Error("error fetching id from rows", "error", err.Error())
+				return errors.New("error deleting node")
+			}
+			queue = append(queue, id)
+			nodeIDs = append(nodeIDs, id)
+		}
+
+		if err = rows.Err(); err != nil {
+			slog.Error("error fetching id from rows end", "error", err.Error())
+			return errors.New("error deleting node")
+		}
+	}
+
+	for i := range nodeIDs {
+		_, err = DBConnPool.Exec(`
+			DELETE FROM
+				FILE_METADATA
+			WHERE
+				NODE_ID = $1
+		`, nodeIDs[i])
+
+		if err != nil {
+			slog.Error("error deleting row in file_metadata", "error", err.Error(), "node_id", nodeIDs[i])
+			return errors.New("error deleting file_metadata")
+		}
+
+		_, err = DBConnPool.Exec(`
+			DELETE FROM
+				NODE
+			WHERE
+				ID = $1
+		`, nodeIDs[i])
+
+		if err != nil {
+			slog.Error("error deleting row node", "error", err.Error(), "id", nodeIDs[i])
+			return errors.New("error deleting node")
+		}
+
+	}
+
+	return nil
 }
