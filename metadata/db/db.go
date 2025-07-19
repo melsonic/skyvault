@@ -1,8 +1,10 @@
 package db
 
 import (
+	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -41,6 +43,7 @@ func connectDB() error {
 	if err != nil {
 		return err
 	}
+	slog.Info("database connected!")
 	return nil
 }
 
@@ -56,7 +59,8 @@ func setupDB() error {
 		)
 	`)
 	if err != nil {
-		return err
+		slog.Error("error creating NODE_MD table", "error", err.Error())
+		return errors.New("error creating node_md table")
 	}
 	_, err = DBConn.Exec(`
 		CREATE TABLE IF NOT EXISTS NODE (
@@ -69,13 +73,18 @@ func setupDB() error {
 		)
 	`)
 	if err != nil {
-		return err
+		slog.Error("error creating NODE table", "error", err.Error())
+		return errors.New("error creating node table")
 	}
 	_ = DBConn.QueryRow("SELECT ID FROM NODE WHERE NAME = $1", ROOT_NAME).Scan(&ROOT_FOLDER)
 	if ROOT_FOLDER == -1 {
 		err = DBConn.QueryRow(`INSERT INTO NODE (FOLDER, NAME) VALUES ($1, $2) RETURNING ID`, true, ROOT_NAME).Scan(&ROOT_FOLDER)
+		if err != nil {
+			slog.Error("error inserting root node", "error", err.Error())
+			return errors.New("error inserting root node")
+		}
 	}
-	return err
+	return nil
 }
 
 func InitDB() error {
@@ -87,41 +96,62 @@ func InitDB() error {
 	return err
 }
 
-func SaveMetadata(data types.Metadata) error {
+func SaveMetadata(data types.Metadata) (int, error) {
+	fileExtension, err := util.GetFileExtension(data.FileName)
+	if !data.IsFolder && err != nil {
+		slog.Error("unsupported file format")
+		return -1, err
+	}
 	path := strings.Split(data.FilePath, "/")
-	parentFolderId := ROOT_FOLDER
+	folderID := ROOT_FOLDER
 	var index int = 0
+	var currentFolderID int
 	for index = 0; index < len(path); index++ {
-		var tempParentId int
-		err := DBConn.QueryRow("SELECT ID FROM NODE WHERE NAME = $1", path[index]).Scan(&tempParentId)
+		err := DBConn.QueryRow(`
+			SELECT 
+				ID 
+			FROM 
+				NODE 
+			WHERE 
+				NAME = $1
+		`, path[index]).Scan(&currentFolderID)
 		if err != nil {
 			break
 		}
-		parentFolderId = tempParentId
+		folderID = currentFolderID
 	}
-	fmt.Println(index)
 	for index < len(path) {
-		var tempParentId int
-		fmt.Println(path[index])
-		err := DBConn.QueryRow("INSERT INTO NODE (FOLDER, NAME, PARENT_FOLDER) VALUES ($1, $2, $3) RETURNING ID", true, path[index], parentFolderId).Scan(&tempParentId)
+		err := DBConn.QueryRow(`
+			INSERT INTO NODE (FOLDER, NAME, PARENT_FOLDER) 
+			VALUES 
+				($1, $2, $3) RETURNING ID
+		`, true, path[index], folderID).Scan(&currentFolderID)
 		if err != nil {
-			return err
+			slog.Error("error inserting node", "error", err.Error(), "nodename", path[index])
+			return -1, errors.New("error saving node")
 		}
-		parentFolderId = tempParentId
+		folderID = currentFolderID
 		index++
 	}
 	if data.IsFolder {
-		return nil
+		return folderID, nil
 	}
 	// Below code runs only when the input is a file
-	fileExtension, err := util.GetFileExtension(data.FileName)
+	var nodeMetaDataID int = -1
+	err = DBConn.QueryRow(`
+		INSERT INTO NODE_MD (
+			FILE_TYPE, CREATED_AT, LAST_ACCESS, 
+			LAST_MODIFIED, FILE_SIZE
+		) 
+		VALUES 
+		(
+			$1, current_timestamp, current_timestamp, 
+			current_timestamp, $2
+		) RETURNING ID
+	`, fileExtension, data.FileSize).Scan(&nodeMetaDataID)
 	if err != nil {
-		return err
-	}
-	var nodeMetaDataId int = -1
-	err = DBConn.QueryRow("INSERT INTO NODE_MD (FILE_TYPE, CREATED_AT, LAST_ACCESS, LAST_MODIFIED, FILE_SIZE) VALUES ($1, current_timestamp, current_timestamp, current_timestamp, $2) RETURNING ID", fileExtension, data.FileSize).Scan(&nodeMetaDataId)
-	if err != nil {
-		return err
+		slog.Error("error inserting node", "error", err.Error())
+		return -1, errors.New("error saving node")
 	}
 	hashes := "{"
 	for i := range data.Hashes {
@@ -132,19 +162,42 @@ func SaveMetadata(data types.Metadata) error {
 		hashes += ","
 	}
 	hashes += "}"
-	_, err = DBConn.Exec(`INSERT INTO NODE (FOLDER, NAME, PARENT_FOLDER, FILE_MD, HASH_IDS) VALUES ($1, $2, $3, $4, $5)`, data.IsFolder, data.FileName, parentFolderId, nodeMetaDataId, hashes)
-	return err
+	var nodeID int
+	err = DBConn.QueryRow(`
+		INSERT INTO NODE (
+			FOLDER, NAME, PARENT_FOLDER, FILE_MD, 
+			HASH_IDS
+		) 
+		VALUES 
+			($1, $2, $3, $4, $5)
+		RETURNING ID
+	`, data.IsFolder, data.FileName, folderID, nodeMetaDataID, hashes).Scan(&nodeID)
+	if err != nil {
+		slog.Error("error saving file", "error", err.Error(), "filename", data.FileName)
+		return -1, errors.New("error saving file")
+	}
+	return nodeID, nil
 }
 
-func FetchMetadata(fileName string) ([]string, error) {
+func FetchMetadata(fileNodeId string) (*types.Metadata, error) {
 	var hashIDs pgtype.TextArray
-	err := DBConn.QueryRow("SELECT HASH_IDS FROM NODE WHERE NAME=$1", fileName).Scan(&hashIDs)
+	var fileNodeData types.Metadata
+	err := DBConn.QueryRow(`
+		SELECT 
+			NODE_MD.CREATED_AT, NODE_MD.LAST_ACCESS, NODE_MD.LAST_MODIFIED, NODE_MD.FILE_SIZE, NODE.HASH_IDS, NODE.NAME 
+		FROM 
+			NODE, NODE_MD 
+		WHERE 
+			NODE.ID=$1
+	`, fileNodeId).Scan(&fileNodeData.CreatedAt, &fileNodeData.LastAccess, &fileNodeData.LastModified, &fileNodeData.FileSize, &hashIDs, &fileNodeData.FileName)
 	if err != nil {
-		return nil, err
+		slog.Error("error in querying node db", "error", err.Error())
+		return nil, errors.New("error fetching data from db")
 	}
 	var hashes []string
 	for i := range hashIDs.Elements {
 		hashes = append(hashes, hashIDs.Elements[i].String)
 	}
-	return hashes, nil
+	fileNodeData.Hashes = hashes
+	return &fileNodeData, nil
 }

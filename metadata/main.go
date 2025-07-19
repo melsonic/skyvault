@@ -1,10 +1,11 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
+	"encoding/json"
 	"io"
 	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -27,43 +28,37 @@ func metadataSaveHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Perform Operation to save Metadata
-	err = db.SaveMetadata(data)
+	nodeID, err := db.SaveMetadata(data)
 	if err != nil {
-		fmt.Println(err.Error())
+		slog.Error(err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))
 		return
 	}
+	data.FileNodeId = fmt.Sprint(nodeID)
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("marshal error"))
+		return
+	}
+	// write json data to writer
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("File metadata saved successfully!"))
+	w.Write(jsonData)
 }
 
 func metadataFetchHandler(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Invalid request body"))
-		return
-	}
-	var data types.Metadata
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Invalid request body"))
-		return
-	}
+	nodeid := r.PathValue("nodeid")
 	// Perform operation to fetch hashes from Database
-	hashes, err := db.FetchMetadata(data.FileName)
+	nodeMetaData, err := db.FetchMetadata(nodeid)
 	if err != nil {
-		fmt.Println(err.Error())
+		slog.Error(err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("Error fetching file metadata"))
 		return
 	}
-	md := types.Metadata{
-		Hashes: hashes,
-	}
-	response, err := json.Marshal(md)
+	response, err := json.Marshal(nodeMetaData)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))
@@ -76,12 +71,12 @@ func metadataFetchHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	err := db.InitDB()
 	if err != nil {
-		fmt.Println("InitDB Error : ", err.Error())
+		slog.Error("error in db setup", "error", err.Error())
 		return
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/metadata/save", metadataSaveHandler)
-	mux.HandleFunc("/metadata/fetch", metadataFetchHandler)
+	mux.HandleFunc("GET /metadata/{nodeid}", metadataFetchHandler)
+	mux.HandleFunc("POST /metadatas", metadataSaveHandler)
 	server := &http.Server{
 		Addr:           ":8001",
 		Handler:        mux,
