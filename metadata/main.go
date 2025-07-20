@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/melsonic/skyvault/metadata/db"
@@ -86,6 +90,17 @@ func main() {
 		slog.Error("error in db setup", "error", err.Error())
 		return
 	}
+
+	ctx, _ := signal.NotifyContext(context.Background(),
+		os.Interrupt,
+		syscall.SIGHUP,  // process is detached from terminal
+		syscall.SIGTERM, // default for kill
+		syscall.SIGKILL,
+		syscall.SIGQUIT, // ctrl + \
+		syscall.SIGINT,  // ctrl+c
+	)
+	db.CleanOrphanNodes(ctx)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /metadata/{nodeid}", metadataFetchHandler)
 	mux.HandleFunc("POST /metadatas", metadataSaveHandler)

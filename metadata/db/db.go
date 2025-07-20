@@ -1,12 +1,14 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"log"
 	"log/slog"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx"
 	"github.com/jackc/pgx/pgtype"
@@ -281,4 +283,31 @@ func DeleteMetadata(nodeID string) error {
 	}
 
 	return nil
+}
+
+// In case while deleting a folder, there might be some error
+// and some orphan nodes might be present in node table
+// this method runs periodically to remove those orphan nodes
+func CleanOrphanNodes(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Hour)
+
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				// clean up the table
+				// TODO: optimize the query/approach
+				_, err := DBConnPool.Exec(`DELETE FROM NODE WHERE PARENT_FOLDER NOT IN (SELECT ID FROM NODE)`)
+				if err != nil {
+					slog.Error("error fetching node ids in gorouting", "error", err.Error())
+					continue
+				}
+
+			case <-ctx.Done():
+				ticker.Stop()
+				return
+			}
+		}
+	}()
+
 }
