@@ -105,7 +105,7 @@ func GetUserIdentityFromRefreshToken(tokenString string) *models.User {
 	}
 }
 
-func GenerateNewAccessTokenFromRefreshToken(tokenString string) *string {
+func GenerateNewAccessTokenFromRefreshToken(tokenString string) (string, error) {
 	signingKey := []byte(os.Getenv("SECRET_SIGNATURE"))
 
 	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (any, error) {
@@ -114,7 +114,7 @@ func GenerateNewAccessTokenFromRefreshToken(tokenString string) *string {
 
 	if err != nil || !token.Valid {
 		slog.Info("error parsing refresh token", "error", err.Error())
-		return nil
+		return "", err
 	}
 
 	claims := token.Claims.(models.JWTTokenClaims)
@@ -122,19 +122,19 @@ func GenerateNewAccessTokenFromRefreshToken(tokenString string) *string {
 	dbUserRefreshTokenVersion, err := db.GetUserRefreshTokenVersion(claims.Email)
 
 	if err != nil {
-		return nil
+		return "", err
 	}
 
 	if dbUserRefreshTokenVersion != claims.RefreshTokenVersion {
 		slog.Info("refresh token version doesn't match")
-		return nil
+		return "", err
 	}
 
 	accessToken, err := GenerateAccessToken(claims.Email)
 
 	if err != nil {
-		return nil
+		return "", err
 	}
 
-	return &accessToken
+	return accessToken, nil
 }

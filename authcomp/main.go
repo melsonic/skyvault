@@ -26,6 +26,7 @@ func main() {
 	mux.HandleFunc("POST /login", handler.LoginHandler)
 	mux.HandleFunc("POST /logout", handler.LogoutHandler)
 	mux.HandleFunc("GET /authorize", handler.AuthorizeHandler)
+	mux.HandleFunc("POST /token", handler.NewTokenHandler)
 
 	server := &http.Server{
 		Addr:           ":8002",

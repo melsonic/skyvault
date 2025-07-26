@@ -17,8 +17,8 @@ type User struct {
 }
 
 type AuthResponse struct {
-	AccessToken  string `json:"accesstoken"`
-	RefreshToken string `json:"refreshtoken"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
 }
 
 type JWTTokenClaims struct {
@@ -26,4 +26,12 @@ type JWTTokenClaims struct {
 	TokenType           string
 	RefreshTokenVersion int
 	jwt.RegisteredClaims
+}
+
+type NewAccessTokenRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+type NewAccessTokenResponse struct {
+	AccessToken string `json:"access_token"`
 }

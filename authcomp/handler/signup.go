@@ -25,7 +25,7 @@ func SignUpHandler(w http.ResponseWriter, r *http.Request) {
 	err = json.Unmarshal(requestBody, &data)
 	if err != nil {
 		slog.Error("error in json unmarshal", "error", err.Error())
-		w.WriteHeader(http.StatusInternalServerError)
+		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("error unmarshalling json value"))
 		return
 	}
