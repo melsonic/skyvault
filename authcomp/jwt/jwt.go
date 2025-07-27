@@ -15,7 +15,7 @@ const (
 	refreshToken = "refresh-token"
 )
 
-func GenerateAccessToken(email string) (string, error) {
+func GenerateAccessToken(email string, name string) (string, error) {
 	signingKey := []byte(os.Getenv("SECRET_SIGNATURE"))
 	issuer := os.Getenv("TOKEN_ISSUER")
 
@@ -24,6 +24,7 @@ func GenerateAccessToken(email string) (string, error) {
 		jwt.SigningMethodHS256,
 		models.JWTTokenClaims{
 			Email:     email,
+			Name:      name,
 			TokenType: accessToken,
 			RegisteredClaims: jwt.RegisteredClaims{
 				ExpiresAt: &jwt.NumericDate{Time: time.Now().Add(5 * time.Minute)},
@@ -41,7 +42,7 @@ func GenerateAccessToken(email string) (string, error) {
 	return accessToken, nil
 }
 
-func GenerateRefreshToken(email string, refreshTokenVersion int) (string, error) {
+func GenerateRefreshToken(email string, name string, refreshTokenVersion int) (string, error) {
 	signingKey := []byte(os.Getenv("SECRET_SIGNATURE"))
 	issuer := os.Getenv("TOKEN_ISSUER")
 
@@ -49,6 +50,7 @@ func GenerateRefreshToken(email string, refreshTokenVersion int) (string, error)
 		jwt.SigningMethodHS256,
 		models.JWTTokenClaims{
 			Email:               email,
+			Name:                name,
 			TokenType:           refreshToken,
 			RefreshTokenVersion: refreshTokenVersion,
 			RegisteredClaims: jwt.RegisteredClaims{
@@ -83,6 +85,7 @@ func GetUserIdentityFromAccessToken(tokenString string) *models.User {
 
 	return &models.User{
 		Email: claims.Email,
+		Name:  claims.Name,
 	}
 }
 
@@ -102,6 +105,7 @@ func GetUserIdentityFromRefreshToken(tokenString string) *models.User {
 
 	return &models.User{
 		Email: claims.Email,
+		Name:  claims.Name,
 	}
 }
 
@@ -130,7 +134,7 @@ func GenerateNewAccessTokenFromRefreshToken(tokenString string) (string, error) 
 		return "", err
 	}
 
-	accessToken, err := GenerateAccessToken(claims.Email)
+	accessToken, err := GenerateAccessToken(claims.Email, claims.Name)
 
 	if err != nil {
 		return "", err

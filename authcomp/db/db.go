@@ -116,6 +116,25 @@ func GetUserData(user *models.User) error {
 	return nil
 }
 
+func GetUserName(email string) (string, error) {
+	var name string
+
+	err := DBConnPool.QueryRow(`
+		SELECT
+			name
+		FROM users
+		WHERE
+			email = $1
+	`, email).Scan(&name)
+
+	if err != nil {
+		slog.Error("error fetching name from users", "error", err.Error())
+		return "", err
+	}
+
+	return name, nil
+}
+
 func GetUserRefreshTokenVersion(email string) (int, error) {
 	var refreshTokenVersion int
 

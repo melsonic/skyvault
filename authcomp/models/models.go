@@ -23,6 +23,7 @@ type AuthResponse struct {
 
 type JWTTokenClaims struct {
 	Email               string
+	Name                string
 	TokenType           string
 	RefreshTokenVersion int
 	jwt.RegisteredClaims

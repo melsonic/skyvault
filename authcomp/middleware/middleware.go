@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/melsonic/skyvault/auth/db"
 	jwtauth "github.com/melsonic/skyvault/auth/jwt"
 )
 
@@ -25,14 +24,6 @@ func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		if user == nil {
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte("invalid jwt token"))
-			return
-		}
-
-		// fill other user details
-		err := db.GetUserData(user)
-		if err != nil {
-			w.WriteHeader(http.StatusNotFound)
-			w.Write([]byte("error fetching user data"))
 			return
 		}
 

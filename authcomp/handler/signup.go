@@ -30,6 +30,13 @@ func SignUpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if data.Name == "" {
+		slog.Error("empty required field name")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("empty required field name"))
+		return
+	}
+
 	if !util.IsValidEmail(data.Email) {
 		slog.Error("invalid email address", "email", data.Email)
 		w.WriteHeader(http.StatusBadRequest)
@@ -37,7 +44,7 @@ func SignUpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !util.IsValidGender(data.Gender) {
+	if data.Gender != "" && !util.IsValidGender(data.Gender) {
 		slog.Error("invalid gender", "gender", data.Gender)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("invalid gender"))
@@ -52,14 +59,14 @@ func SignUpHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// access token & refresh token generation
-	refreshToken, err := jwtauth.GenerateRefreshToken(data.Email, data.RefreshTokenVersion)
+	refreshToken, err := jwtauth.GenerateRefreshToken(data.Email, data.Name, data.RefreshTokenVersion)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("error generating auth token[1]"))
 		return
 	}
 
-	accessToken, err := jwtauth.GenerateAccessToken(data.Email)
+	accessToken, err := jwtauth.GenerateAccessToken(data.Email, data.Name)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("error generating auth token[2]"))

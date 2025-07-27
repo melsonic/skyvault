@@ -45,15 +45,23 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	data.Name, err = db.GetUserName(data.Email);
+
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("error fetching user details"))
+		return
+	}
+
 	// access token & refresh token generation
-	refreshToken, err := jwtauth.GenerateRefreshToken(data.Email, data.RefreshTokenVersion)
+	refreshToken, err := jwtauth.GenerateRefreshToken(data.Email, data.Name, data.RefreshTokenVersion)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("error generating auth token[1]"))
 		return
 	}
 
-	accessToken, err := jwtauth.GenerateAccessToken(data.Email)
+	accessToken, err := jwtauth.GenerateAccessToken(data.Email, data.Name)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("error generating auth token[2]"))
