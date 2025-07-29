@@ -98,7 +98,7 @@ func CreateUser(user *models.User) error {
 	return nil
 }
 
-func GetUserData(user *models.User) error {
+func GetUserProfile(user *models.User) error {
 
 	err := DBConnPool.QueryRow(`
 		SELECT 
@@ -179,16 +179,52 @@ func UpdateRefreshTokenVersion(email string) error {
 func VerifyUserProfile(email string, password string) bool {
 	var dbPassword string
 
+	// in case of no user found, the Scan will return ErrNoRows
 	err := DBConnPool.QueryRow(`
 		SELECT password FROM users WHERE email = $1
 	`, email).Scan(&dbPassword)
 
 	if err != nil {
-		slog.Error("error fetching password from `users`", "error", err.Error())
+		if errors.Is(err, pgx.ErrNoRows) {
+			slog.Error("user doesn't exist", "error", err.Error())
+		} else {
+			slog.Error("error fetching password from `users`", "error", err.Error())
+		}
 		return false
 	}
 
 	validPassword := util.IsValidPassword(password, dbPassword)
 
 	return validPassword
+}
+
+func DeleteUserProfile(email string) error {
+	_, err := DBConnPool.Exec(`
+		DELETE FROM users
+		WHERE email = $1
+	`, email)
+
+	if err != nil {
+		slog.Error("error deleting user profile.", "error", err.Error())
+		return err
+	}
+
+	return nil
+}
+
+func UpdateUserProfile(realUserIdentity models.User, toUpdateUser models.User) error {
+	_, err := DBConnPool.Exec(`
+		UPDATE users
+		SET
+			name = $1, user_gender = $2, date_of_birth = $3
+		WHERE
+			email = $4
+	`, toUpdateUser.Name, toUpdateUser.Gender, toUpdateUser.DateOfBirth, realUserIdentity.Email)
+
+	if err != nil {
+		slog.Error("error updating user profile", "error", err.Error())
+		return err
+	}
+
+	return nil
 }

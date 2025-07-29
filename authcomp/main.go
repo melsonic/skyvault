@@ -8,6 +8,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/melsonic/skyvault/auth/db"
 	"github.com/melsonic/skyvault/auth/handler"
+	"github.com/melsonic/skyvault/auth/middleware"
 )
 
 func main() {
@@ -24,9 +25,12 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /signup", handler.SignUpHandler)
 	mux.HandleFunc("POST /login", handler.LoginHandler)
-	mux.HandleFunc("POST /logout", handler.LogoutHandler)
-	mux.HandleFunc("GET /authorize", handler.AuthorizeHandler)
-	mux.HandleFunc("POST /token", handler.NewTokenHandler)
+	mux.HandleFunc("POST /logout", middleware.AuthMiddleware(handler.LogoutHandler))
+	mux.HandleFunc("GET /authorize", middleware.AuthMiddleware(handler.AuthorizeHandler))
+	mux.HandleFunc("POST /token", middleware.AuthMiddleware(handler.NewTokenHandler))
+	mux.HandleFunc("GET /user/{userid}", middleware.AuthMiddleware(handler.GetUserHandler))
+	mux.HandleFunc("POST /user/{userid}", middleware.AuthMiddleware(handler.UpdateUserHandler))
+	mux.HandleFunc("DELETE /user/{userid}", middleware.AuthMiddleware(handler.DeleteUserHandler))
 
 	server := &http.Server{
 		Addr:           ":8002",
