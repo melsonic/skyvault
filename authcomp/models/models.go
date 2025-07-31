@@ -36,3 +36,14 @@ type NewAccessTokenRequest struct {
 type NewAccessTokenResponse struct {
 	AccessToken string `json:"access_token"`
 }
+
+type PasswordResetRequest struct {
+	ID          string    `json:"id,omitempty"`
+	Email       string    `json:"email,omitempty"`
+	RequestedAt time.Time `json:"requested_at,omitempty"`
+	UsedFlag    bool      `json:"used,omitempty"`
+}
+
+type EmailTemplateData struct {
+	ResetURL string
+}

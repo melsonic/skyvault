@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx"
 	"github.com/melsonic/skyvault/auth/models"
 	"github.com/melsonic/skyvault/auth/util"
@@ -50,7 +51,7 @@ func setupDB() error {
 		return errors.New("error creating gender enum")
 	}
 
-	_, err = DBConnPool.Exec(`
+	_, err = DBConnPool.Exec(`--sql
 		CREATE TABLE IF NOT EXISTS users (
 			id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 			email VARCHAR(255) NOT NULL UNIQUE,
@@ -64,7 +65,20 @@ func setupDB() error {
 	`)
 	if err != nil {
 		slog.Error("error creating users table", "error", err.Error())
-		return errors.New("error creating node table")
+		return errors.New("error creating users table")
+	}
+
+	_, err = DBConnPool.Exec(`--sql
+		CREATE TABLE IF NOT EXISTS password_reset_requests (
+			id TEXT NOT NULL,
+			requested_at TIMESTAMPTZ DEFAULT NOW(),
+			email VARCHAR(255) REFERENCES users(email),
+			used_flag BOOLEAN DEFAULT FALSE
+		)
+	`)
+	if err != nil {
+		slog.Error("error creating password_reset_requests table", "error", err.Error())
+		return errors.New("error creating password_reset_requests table")
 	}
 
 	return nil
@@ -213,7 +227,7 @@ func DeleteUserProfile(email string) error {
 }
 
 func UpdateUserProfile(realUserIdentity models.User, toUpdateUser models.User) error {
-	_, err := DBConnPool.Exec(`
+	_, err := DBConnPool.Exec(`--sql
 		UPDATE users
 		SET
 			name = $1, user_gender = $2, date_of_birth = $3
@@ -227,4 +241,80 @@ func UpdateUserProfile(realUserIdentity models.User, toUpdateUser models.User) e
 	}
 
 	return nil
+}
+
+func UpdateUserPassword(email string, password string, request_id string) error {
+	hashedPassword, err := util.HashPassword(password)
+	if err != nil {
+		return err
+	}
+
+	_, err = DBConnPool.Exec(`--sql
+		UPDATE users
+		SET
+			password = $1
+		WHERE
+			email = $2
+	`, hashedPassword, email)
+
+	if err != nil {
+		slog.Error("error updating password", "error", err.Error())
+		return err
+	}
+
+	_, err = DBConnPool.Exec(`--sql
+		UPDATE password_reset_requests
+		SET
+			used_flag = TRUE
+		WHERE 
+			id = $1
+	`, request_id)
+
+	if err != nil {
+		slog.Error("error setting used flag", "error", err.Error(), "request_id", request_id)
+		return err
+	}
+
+	return nil
+}
+
+func InsertNewPasswordResetRequest(email string) (string, error) {
+	var userID int
+
+	err := DBConnPool.QueryRow(`--sql
+		SELECT id FROM users WHERE email = $1
+	`, email).Scan(userID)
+
+	if err != nil {
+		slog.Error("error fetching user identity", "error", err.Error())
+		return "", err
+	}
+
+	id := uuid.New()
+
+	_, err = DBConnPool.Exec(`--sql
+		INSERT INTO password_reset_requests (id, email) VALUES ($1, $2)
+	`, id, email)
+
+	if err != nil {
+		slog.Error("error inserting new password reset request", "error", err.Error())
+		return "", err
+	}
+
+	return id.String(), nil
+}
+
+func GetPasswordResetRequest(id string) *models.PasswordResetRequest {
+	var PasswordResetRequest models.PasswordResetRequest
+
+	err := DBConnPool.QueryRow(`--sql 
+	    SELECT id, email, requested_at, used_flag FROM password_reset_requests WHERE id = $1
+	`, id).Scan(PasswordResetRequest.ID, PasswordResetRequest.Email, PasswordResetRequest.RequestedAt, PasswordResetRequest.UsedFlag)
+
+	if err != nil {
+		slog.Error("error fetching password reset request details", "error", err.Error())
+		return nil
+	}
+
+	return &PasswordResetRequest
 }

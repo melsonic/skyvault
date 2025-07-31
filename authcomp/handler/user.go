@@ -2,6 +2,8 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
+	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
@@ -9,6 +11,7 @@ import (
 	"github.com/melsonic/skyvault/auth/db"
 	"github.com/melsonic/skyvault/auth/models"
 	"github.com/melsonic/skyvault/auth/util"
+	"github.com/wneessen/go-mail"
 )
 
 func GetUserHandler(w http.ResponseWriter, r *http.Request) {
@@ -75,7 +78,7 @@ func UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("error updating user profile."))
 		return
 	}
-	
+
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("user profile updated successfully."))
 }
@@ -94,4 +97,101 @@ func DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("user profile deleted successfully."))
+}
+
+func ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
+	requestBody, err := io.ReadAll(r.Body)
+	if err != nil {
+		slog.Error("error reading request body", "error", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("error reading request body"))
+		return
+	}
+
+	var passwordResetRequest models.PasswordResetRequest
+	err = json.Unmarshal(requestBody, &passwordResetRequest)
+	if err != nil {
+		slog.Error("error in json unmarshal", "error", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("error reading request body"))
+		return
+	}
+
+	if !util.IsValidEmail(passwordResetRequest.Email) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("invalid email"))
+		return
+	}
+
+	passwordResetRequest.ID, err = db.InsertNewPasswordResetRequest(passwordResetRequest.Email)
+	if err != nil {
+		slog.Error("error generating uuid for password reset request", "error", err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("error posting password reset request"))
+		return
+	}
+
+	// Using MailHog for local SMTP server
+	email := mail.NewMsg()
+
+	err = email.From("support@skyvault.com")
+	if err != nil {
+		slog.Error("error setting email sender", "error", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("error sending email"))
+		return
+	}
+
+	err = email.To(passwordResetRequest.Email)
+	if err != nil {
+		slog.Error("error setting email sender", "error", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("error sending email"))
+		return
+	}
+
+	email.Subject("Password Reset - SkyVault")
+
+	emailTemplate, err := template.ParseFiles("../template/email.tmpl")
+	if err != nil {
+		slog.Error("error parsing tmpl file", "error", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("error sending email"))
+		return
+	}
+	data := models.EmailTemplateData{
+		ResetURL: fmt.Sprintf("http://localhost:8003/user/updatepassword/%s", passwordResetRequest.ID),
+	}
+
+	err = email.SetBodyHTMLTemplate(emailTemplate, &data)
+	if err != nil {
+		slog.Error("error setting email body", "error", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("error sending email"))
+		return
+	}
+
+	emailClient, err := mail.NewClient("0.0.0.0", mail.WithPort(1025))
+	if err != nil {
+		slog.Error("error creating email client", "error", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("error sending email"))
+		return
+	}
+	emailClient.SetTLSPolicy(mail.TLSOpportunistic)
+
+	if err = emailClient.DialAndSend(email); err != nil {
+		slog.Error("error sending email", "error", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("error sending email"))
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("email sent"))
+}
+
+func UpdatePasswordHandler(w http.ResponseWriter, r *http.Request) {
+	// passwordResetID := r.PathValue("hashid")
+
 }
