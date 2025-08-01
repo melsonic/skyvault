@@ -37,7 +37,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userPresent := db.VerifyUserProfile(data.Email, data.Password)
+	userPresent := db.VerifyUserPasswordWithDBPassword(data.Email, data.Password)
 
 	if !userPresent {
 		w.WriteHeader(http.StatusBadRequest)

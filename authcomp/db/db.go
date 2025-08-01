@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx"
@@ -71,7 +72,7 @@ func setupDB() error {
 	_, err = DBConnPool.Exec(`--sql
 		CREATE TABLE IF NOT EXISTS password_reset_requests (
 			id TEXT NOT NULL,
-			requested_at TIMESTAMPTZ DEFAULT NOW(),
+			request_expiry TIMESTAMPTZ NOT NULL,
 			email VARCHAR(255) REFERENCES users(email),
 			used_flag BOOLEAN DEFAULT FALSE
 		)
@@ -100,7 +101,7 @@ func CreateUser(user *models.User) error {
 		return err
 	}
 
-	err = DBConnPool.QueryRow(`
+	err = DBConnPool.QueryRow(`--sql
 		INSERT INTO users (email, password, name, user_gender, date_of_birth, date_created) VALUES ($1, $2, $3, $4, $5, current_timestamp) RETURNING refresh_token_version
 	`, user.Email, hashedPassword, user.Name, user.Gender).Scan(&user.RefreshTokenVersion)
 
@@ -114,7 +115,7 @@ func CreateUser(user *models.User) error {
 
 func GetUserProfile(user *models.User) error {
 
-	err := DBConnPool.QueryRow(`
+	err := DBConnPool.QueryRow(`--sql
 		SELECT 
 			name, user_gender, date_of_birth, date_created
 		FROM users 
@@ -133,7 +134,7 @@ func GetUserProfile(user *models.User) error {
 func GetUserName(email string) (string, error) {
 	var name string
 
-	err := DBConnPool.QueryRow(`
+	err := DBConnPool.QueryRow(`--sql
 		SELECT
 			name
 		FROM users
@@ -152,7 +153,7 @@ func GetUserName(email string) (string, error) {
 func GetUserRefreshTokenVersion(email string) (int, error) {
 	var refreshTokenVersion int
 
-	err := DBConnPool.QueryRow(`
+	err := DBConnPool.QueryRow(`--sql
 		SELECT refresh_token_version FROM users WHERE email = $1
 	`, email).Scan(&refreshTokenVersion)
 
@@ -167,7 +168,7 @@ func GetUserRefreshTokenVersion(email string) (int, error) {
 func UpdateRefreshTokenVersion(email string) error {
 	var refreshTokenVersion int
 
-	err := DBConnPool.QueryRow(`
+	err := DBConnPool.QueryRow(`--sql
 		SELECT refresh_token_version FROM users WHERE email = $1
 	`, email).Scan(&refreshTokenVersion)
 
@@ -176,7 +177,7 @@ func UpdateRefreshTokenVersion(email string) error {
 		return err
 	}
 
-	_, err = DBConnPool.Exec(`
+	_, err = DBConnPool.Exec(`--sql
 		UPDATE users
 		SET refresh_token_version = $1
 		WHERE email = $2
@@ -190,11 +191,11 @@ func UpdateRefreshTokenVersion(email string) error {
 	return nil
 }
 
-func VerifyUserProfile(email string, password string) bool {
+func VerifyUserPasswordWithDBPassword(email string, password string) bool {
 	var dbPassword string
 
 	// in case of no user found, the Scan will return ErrNoRows
-	err := DBConnPool.QueryRow(`
+	err := DBConnPool.QueryRow(`--sql
 		SELECT password FROM users WHERE email = $1
 	`, email).Scan(&dbPassword)
 
@@ -213,7 +214,7 @@ func VerifyUserProfile(email string, password string) bool {
 }
 
 func DeleteUserProfile(email string) error {
-	_, err := DBConnPool.Exec(`
+	_, err := DBConnPool.Exec(`--sql
 		DELETE FROM users
 		WHERE email = $1
 	`, email)
@@ -243,7 +244,7 @@ func UpdateUserProfile(realUserIdentity models.User, toUpdateUser models.User) e
 	return nil
 }
 
-func UpdateUserPassword(email string, password string, request_id string) error {
+func UpdateUserPassword(email string, password string) error {
 	hashedPassword, err := util.HashPassword(password)
 	if err != nil {
 		return err
@@ -259,19 +260,6 @@ func UpdateUserPassword(email string, password string, request_id string) error 
 
 	if err != nil {
 		slog.Error("error updating password", "error", err.Error())
-		return err
-	}
-
-	_, err = DBConnPool.Exec(`--sql
-		UPDATE password_reset_requests
-		SET
-			used_flag = TRUE
-		WHERE 
-			id = $1
-	`, request_id)
-
-	if err != nil {
-		slog.Error("error setting used flag", "error", err.Error(), "request_id", request_id)
 		return err
 	}
 
@@ -292,9 +280,10 @@ func InsertNewPasswordResetRequest(email string) (string, error) {
 
 	id := uuid.New()
 
+	// expire password reset request id after 1 hour
 	_, err = DBConnPool.Exec(`--sql
-		INSERT INTO password_reset_requests (id, email) VALUES ($1, $2)
-	`, id, email)
+		INSERT INTO password_reset_requests (id, email, request_expiry) VALUES ($1, $2, $3)
+	`, id, email, time.Now().Add(time.Hour))
 
 	if err != nil {
 		slog.Error("error inserting new password reset request", "error", err.Error())
@@ -304,17 +293,34 @@ func InsertNewPasswordResetRequest(email string) (string, error) {
 	return id.String(), nil
 }
 
-func GetPasswordResetRequest(id string) *models.PasswordResetRequest {
+func GetPasswordResetRequest(id string) (*models.PasswordResetRequest, error) {
 	var PasswordResetRequest models.PasswordResetRequest
 
 	err := DBConnPool.QueryRow(`--sql 
-	    SELECT id, email, requested_at, used_flag FROM password_reset_requests WHERE id = $1
-	`, id).Scan(PasswordResetRequest.ID, PasswordResetRequest.Email, PasswordResetRequest.RequestedAt, PasswordResetRequest.UsedFlag)
+	    SELECT id, email, request_expiry, used_flag FROM password_reset_requests WHERE id = $1
+	`, id).Scan(PasswordResetRequest.ID, PasswordResetRequest.Email, PasswordResetRequest.RequestExpiry, PasswordResetRequest.UsedFlag)
 
 	if err != nil {
 		slog.Error("error fetching password reset request details", "error", err.Error())
-		return nil
+		return nil, err
 	}
 
-	return &PasswordResetRequest
+	return &PasswordResetRequest, nil
+}
+
+func MarkPasswordResetRequestAsUsed(requestID string) error {
+	_, err := DBConnPool.Exec(`--sql
+		UPDATE password_reset_requests
+		SET
+			used_flag = TRUE
+		WHERE 
+			id = $1
+	`, requestID)
+
+	if err != nil {
+		slog.Error("error setting used flag", "error", err.Error(), "request_id", requestID)
+		return err
+	}
+
+	return nil
 }

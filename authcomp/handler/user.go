@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/melsonic/skyvault/auth/db"
 	"github.com/melsonic/skyvault/auth/models"
@@ -192,6 +193,74 @@ func ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func UpdatePasswordHandler(w http.ResponseWriter, r *http.Request) {
-	// passwordResetID := r.PathValue("hashid")
+	passwordResetID := r.PathValue("hashid")
 
+	passwordResetRequest, err := db.GetPasswordResetRequest(passwordResetID)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("invalid password reset request"))
+		return
+	}
+
+	if passwordResetRequest.RequestExpiry.Before(time.Now()) {
+		slog.Error("password reset request expired")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("invalid password reset request"))
+		return
+	}
+
+	if passwordResetRequest.UsedFlag {
+		slog.Error("password reset request id is already used")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("invalid password reset request"))
+		return
+	}
+
+	// Now read the new password from request body
+	requestBody, err := io.ReadAll(r.Body)
+	if err != nil {
+		slog.Error("error reading request body", "error", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("invalid password reset request"))
+		return
+	}
+
+	var passwordResetUpdateRequest models.PasswordResetUpdateRequest
+	err = json.Unmarshal(requestBody, &passwordResetUpdateRequest)
+	if err != nil {
+		slog.Error("error in json unmarshal", "error", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("invalid password reset request"))
+		return
+	}
+
+	// Compare old password with current db password
+	ok := db.VerifyUserPasswordWithDBPassword(passwordResetRequest.Email, passwordResetUpdateRequest.OldPassword)
+	if !ok {
+		slog.Error("old password doesn't match")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("invalid password reset request"))
+		return
+	}
+
+	// Update user password with new password
+	err = db.UpdateUserPassword(passwordResetRequest.Email, passwordResetUpdateRequest.NewPassword)
+	if err != nil {
+		slog.Error("error updating db password", "error", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("invalid password reset request"))
+		return
+	}
+
+	// Mark password reset request as used
+	err = db.MarkPasswordResetRequestAsUsed(passwordResetRequest.ID)
+	if err != nil {
+		slog.Error("error marking password reset request as used", "error", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("invalid password reset request"))
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("password updated successfully"))
 }

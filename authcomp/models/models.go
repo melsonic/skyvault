@@ -38,12 +38,17 @@ type NewAccessTokenResponse struct {
 }
 
 type PasswordResetRequest struct {
-	ID          string    `json:"id,omitempty"`
-	Email       string    `json:"email,omitempty"`
-	RequestedAt time.Time `json:"requested_at,omitempty"`
-	UsedFlag    bool      `json:"used,omitempty"`
+	ID            string    `json:"id,omitempty"`
+	Email         string    `json:"email,omitempty"`
+	RequestExpiry time.Time `json:"request_expiry,omitempty"`
+	UsedFlag      bool      `json:"used,omitempty"`
 }
 
 type EmailTemplateData struct {
 	ResetURL string
+}
+
+type PasswordResetUpdateRequest struct {
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
 }
