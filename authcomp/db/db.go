@@ -295,7 +295,7 @@ func GetPasswordResetRequest(id string) (*models.PasswordResetRequest, error) {
 
 	err := DBConnPool.QueryRow(`--sql 
 	    SELECT id, email, request_expiry, used_flag FROM password_reset_requests WHERE id = $1
-	`, id).Scan(PasswordResetRequest.ID, PasswordResetRequest.Email, PasswordResetRequest.RequestExpiry, PasswordResetRequest.UsedFlag)
+	`, id).Scan(&PasswordResetRequest.ID, &PasswordResetRequest.Email, &PasswordResetRequest.RequestExpiry, &PasswordResetRequest.UsedFlag)
 
 	if err != nil {
 		slog.Error("error fetching password reset request details", "error", err.Error())

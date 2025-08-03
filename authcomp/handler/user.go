@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"github.com/melsonic/skyvault/auth/db"
@@ -208,6 +209,25 @@ func ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("email sent"))
+}
+
+func UpdatePasswordFormHandler(w http.ResponseWriter, r *http.Request) {
+	passwordResetID := r.PathValue("hashid")
+
+	templateFilePath := filepath.Join("static", "password_reset.html")
+	tmpl, err := template.ParseFiles(templateFilePath)
+	if err != nil {
+		slog.Error("error parsing html template", "error", err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("internal server error"))
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	tmpl.Execute(w, struct {
+		PasswordResetID string
+	}{
+		PasswordResetID: passwordResetID,
+	})
 }
 
 func UpdatePasswordHandler(w http.ResponseWriter, r *http.Request) {

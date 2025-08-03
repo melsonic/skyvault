@@ -32,6 +32,7 @@ func main() {
 	mux.HandleFunc("POST /user/{userid}", middleware.AuthMiddleware(handler.UpdateUserHandler))
 	mux.HandleFunc("DELETE /user/{userid}", middleware.AuthMiddleware(handler.DeleteUserHandler))
 	mux.HandleFunc("POST /user/passwordreset", handler.ResetPasswordHandler)
+	mux.HandleFunc("GET /user/updatepassword/{hashid}", handler.UpdatePasswordFormHandler)
 	mux.HandleFunc("POST /user/updatepassword/{hashid}", handler.UpdatePasswordHandler)
 
 	server := &http.Server{
