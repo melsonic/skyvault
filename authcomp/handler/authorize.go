@@ -10,7 +10,7 @@ import (
 
 func AuthorizeHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	user := ctx.Value("user").(models.User)
+	user := ctx.Value("user").(*models.User)
 
 	userJsonData, err := json.Marshal(user)
 

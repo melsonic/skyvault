@@ -13,7 +13,7 @@ func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		authorizationHeader := r.Header.Get("Authorization")
 		tokenString := strings.Split(authorizationHeader, " ")[1]
 
-		if authorizationHeader == "" || strings.HasPrefix(authorizationHeader, "Bearer ") || strings.Count(tokenString, ".") != 2 {
+		if authorizationHeader == "" || !strings.HasPrefix(authorizationHeader, "Bearer ") || strings.Count(tokenString, ".") != 2 {
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte("invalid authorization header"))
 			return

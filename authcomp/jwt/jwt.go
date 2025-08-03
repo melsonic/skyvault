@@ -81,11 +81,11 @@ func GetUserIdentityFromAccessToken(tokenString string) *models.User {
 		return nil
 	}
 
-	claims := token.Claims.(models.JWTTokenClaims)
+	claims := token.Claims.(jwt.MapClaims)
 
 	return &models.User{
-		Email: claims.Email,
-		Name:  claims.Name,
+		Email: claims["Email"].(string),
+		Name:  claims["Name"].(string),
 	}
 }
 
@@ -101,11 +101,11 @@ func GetUserIdentityFromRefreshToken(tokenString string) *models.User {
 		return nil
 	}
 
-	claims := token.Claims.(models.JWTTokenClaims)
+	claims := token.Claims.(jwt.MapClaims)
 
 	return &models.User{
-		Email: claims.Email,
-		Name:  claims.Name,
+		Email: claims["Email"].(string),
+		Name:  claims["Name"].(string),
 	}
 }
 
@@ -121,20 +121,20 @@ func GenerateNewAccessTokenFromRefreshToken(tokenString string) (string, error) 
 		return "", err
 	}
 
-	claims := token.Claims.(models.JWTTokenClaims)
+	claims := token.Claims.(jwt.MapClaims)
 
-	dbUserRefreshTokenVersion, err := db.GetUserRefreshTokenVersion(claims.Email)
+	dbUserRefreshTokenVersion, err := db.GetUserRefreshTokenVersion(claims["Email"].(string))
 
 	if err != nil {
 		return "", err
 	}
 
-	if dbUserRefreshTokenVersion != claims.RefreshTokenVersion {
+	if dbUserRefreshTokenVersion != claims["RefreshTokenVersion"] {
 		slog.Info("refresh token version doesn't match")
 		return "", err
 	}
 
-	accessToken, err := GenerateAccessToken(claims.Email, claims.Name)
+	accessToken, err := GenerateAccessToken(claims["Email"].(string), claims["Name"].(string))
 
 	if err != nil {
 		return "", err

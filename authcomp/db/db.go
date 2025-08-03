@@ -38,14 +38,22 @@ func connectDB() error {
 	}
 	DBConnPool, err = pgx.NewConnPool(dbConfig)
 	if err != nil {
+		slog.Error("error connecting to skyauth", "error", err.Error())
 		return err
 	}
 	return nil
 }
 
 func setupDB() error {
-	_, err := DBConnPool.Exec(`
-		CREATE TYPE gender AS ENUM ('male', 'female', 'other');
+	_, err := DBConnPool.Exec(`--sql
+		DO $$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1 FROM pg_type WHERE typname = 'gender'
+			) THEN
+				CREATE TYPE gender AS ENUM ('male', 'female', 'other');
+			END IF;
+		END$$;
 	`)
 	if err != nil {
 		slog.Error("error creating gender enum", "error", err.Error())
@@ -57,12 +65,12 @@ func setupDB() error {
 			id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 			email VARCHAR(255) NOT NULL UNIQUE,
 			password VARCHAR(255) NOT NULL,
-			name TEXT,
+			name VARCHAR(255),
 			user_gender gender,
 			date_of_birth DATE,
 			date_created DATE DEFAULT CURRENT_DATE,
 			refresh_token_version BIGINT DEFAULT 1
-		)
+		);
 	`)
 	if err != nil {
 		slog.Error("error creating users table", "error", err.Error())
@@ -103,7 +111,7 @@ func CreateUser(user *models.User) error {
 
 	err = DBConnPool.QueryRow(`--sql
 		INSERT INTO users (email, password, name, user_gender, date_of_birth, date_created) VALUES ($1, $2, $3, $4, $5, current_timestamp) RETURNING refresh_token_version
-	`, user.Email, hashedPassword, user.Name, user.Gender).Scan(&user.RefreshTokenVersion)
+	`, user.Email, hashedPassword, user.Name, user.Gender, user.DateOfBirth).Scan(&user.RefreshTokenVersion)
 
 	if err != nil {
 		slog.Error("error signing up user", "error", err.Error())
@@ -121,7 +129,7 @@ func GetUserProfile(user *models.User) error {
 		FROM users 
 		WHERE
 			email = $1
-	`, user.Email).Scan(user.Password, user.Name, user.Gender, user.DateOfBirth, user.DateCreated)
+	`, user.Email).Scan(&user.Name, &user.Gender, &user.DateOfBirth, &user.DateCreated)
 
 	if err != nil {
 		slog.Error("error fetching user details", "error", err.Error())
@@ -227,7 +235,7 @@ func DeleteUserProfile(email string) error {
 	return nil
 }
 
-func UpdateUserProfile(realUserIdentity models.User, toUpdateUser models.User) error {
+func UpdateUserProfile(realUserIdentity *models.User, toUpdateUser models.User) error {
 	_, err := DBConnPool.Exec(`--sql
 		UPDATE users
 		SET
@@ -267,21 +275,10 @@ func UpdateUserPassword(email string, password string) error {
 }
 
 func InsertNewPasswordResetRequest(email string) (string, error) {
-	var userID int
-
-	err := DBConnPool.QueryRow(`--sql
-		SELECT id FROM users WHERE email = $1
-	`, email).Scan(userID)
-
-	if err != nil {
-		slog.Error("error fetching user identity", "error", err.Error())
-		return "", err
-	}
-
 	id := uuid.New()
 
 	// expire password reset request id after 1 hour
-	_, err = DBConnPool.Exec(`--sql
+	_, err := DBConnPool.Exec(`--sql
 		INSERT INTO password_reset_requests (id, email, request_expiry) VALUES ($1, $2, $3)
 	`, id, email, time.Now().Add(time.Hour))
 

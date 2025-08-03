@@ -17,22 +17,31 @@ import (
 
 func GetUserHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	user := ctx.Value("user").(models.User)
+	user := ctx.Value("user").(*models.User)
 
-	err := db.GetUserProfile(&user)
+	err := db.GetUserProfile(user)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("error fetching user profile."))
 		return
 	}
 
+	userJsonData, err := json.Marshal(user)
+
+	if err != nil {
+		slog.Error("error in json marshal", "error", err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("please try again later!"))
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("user profile fetched."))
+	w.Write(userJsonData)
 }
 
 func UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	realUserIdentity := ctx.Value("user").(models.User)
+	realUserIdentity := ctx.Value("user").(*models.User)
 
 	requestBody, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -80,13 +89,22 @@ func UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userJsonData, err := json.Marshal(data)
+
+	if err != nil {
+		slog.Error("error in json marshal", "error", err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("please try again later!"))
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("user profile updated successfully."))
+	w.Write(userJsonData)
 }
 
 func DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	user := ctx.Value("user").(models.User)
+	user := ctx.Value("user").(*models.User)
 
 	err := db.DeleteUserProfile(user.Email)
 
@@ -153,7 +171,7 @@ func ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 
 	email.Subject("Password Reset - SkyVault")
 
-	emailTemplate, err := template.ParseFiles("../template/email.tmpl")
+	emailTemplate, err := template.New("email").Parse(util.EmailTemplate)
 	if err != nil {
 		slog.Error("error parsing tmpl file", "error", err.Error())
 		w.WriteHeader(http.StatusBadRequest)

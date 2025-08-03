@@ -9,7 +9,7 @@ import (
 
 func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	user := ctx.Value("user").(models.User)
+	user := ctx.Value("user").(*models.User)
 
 	err := db.UpdateRefreshTokenVersion(user.Email)
 	if err != nil {
