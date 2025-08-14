@@ -7,13 +7,13 @@ import (
 )
 
 type User struct {
-	Email               string    `json:"email"`
-	Password            string    `json:"password"`
-	Name                string    `json:"name"`
-	Gender              string    `json:"gender"`
-	DateOfBirth         time.Time `json:"date_of_birth"`
-	DateCreated         time.Time `json:"date_created"`
-	RefreshTokenVersion int       `json:"refresh_token_version"`
+	Email               string    `json:"email,omitempty"`
+	Password            string    `json:"password,omitempty"`
+	Name                string    `json:"name,omitempty"`
+	Gender              string    `json:"gender,omitempty"`
+	DateOfBirth         time.Time `json:"date_of_birth,omitempty"`
+	DateCreated         time.Time `json:"date_created,omitempty"`
+	RefreshTokenVersion int       `json:"refresh_token_version,omitempty"`
 }
 
 type AuthResponse struct {
@@ -51,4 +51,8 @@ type EmailTemplateData struct {
 type PasswordResetUpdateRequest struct {
 	OldPassword string `json:"old_password"`
 	NewPassword string `json:"new_password"`
+}
+
+type ResponseMessage struct {
+	Message string `json:"message"`
 }

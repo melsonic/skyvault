@@ -23,17 +23,17 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /signup", handler.SignUpHandler)
-	mux.HandleFunc("POST /login", handler.LoginHandler)
-	mux.HandleFunc("POST /logout", middleware.AuthMiddleware(handler.LogoutHandler))
-	mux.HandleFunc("GET /authorize", middleware.AuthMiddleware(handler.AuthorizeHandler))
-	mux.HandleFunc("POST /token", middleware.AuthMiddleware(handler.NewTokenHandler))
-	mux.HandleFunc("GET /user/{userid}", middleware.AuthMiddleware(handler.GetUserHandler))
-	mux.HandleFunc("POST /user/{userid}", middleware.AuthMiddleware(handler.UpdateUserHandler))
-	mux.HandleFunc("DELETE /user/{userid}", middleware.AuthMiddleware(handler.DeleteUserHandler))
-	mux.HandleFunc("POST /user/passwordreset", handler.ResetPasswordHandler)
-	mux.HandleFunc("GET /user/updatepassword/{hashid}", handler.UpdatePasswordFormHandler)
-	mux.HandleFunc("POST /user/updatepassword/{hashid}", handler.UpdatePasswordHandler)
+	mux.HandleFunc("POST /auth/register	", handler.RegisterHandler)
+	mux.HandleFunc("POST /auth/login", handler.LoginHandler)
+	mux.HandleFunc("POST /auth/logout", middleware.AuthMiddleware(handler.LogoutHandler))
+	mux.HandleFunc("POST /auth/refresh", middleware.AuthMiddleware(handler.NewAccessTokenHandler))
+	mux.HandleFunc("GET /users/whoami", middleware.AuthMiddleware(handler.WhoamiHandler))
+	mux.HandleFunc("GET /user/me", middleware.AuthMiddleware(handler.GetUserHandler))
+	mux.HandleFunc("PUT /user/me", middleware.AuthMiddleware(handler.UpdateUserHandler))
+	mux.HandleFunc("DELETE /user/me", middleware.AuthMiddleware(handler.DeleteUserHandler))
+	mux.HandleFunc("POST /auth/password-reset", handler.PasswordResetHandler)
+	mux.HandleFunc("GET /auth/password-reset/{hash}", handler.UpdatePasswordFormHandler)
+	mux.HandleFunc("POST /auth/password-reset/{hash}", handler.UpdatePasswordHandler)
 
 	server := &http.Server{
 		Addr:           ":8003",

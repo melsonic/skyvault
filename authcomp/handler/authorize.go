@@ -8,7 +8,7 @@ import (
 	"github.com/melsonic/skyvault/auth/models"
 )
 
-func AuthorizeHandler(w http.ResponseWriter, r *http.Request) {
+func WhoamiHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user := ctx.Value("user").(*models.User)
 

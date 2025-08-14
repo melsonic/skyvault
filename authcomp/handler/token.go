@@ -10,7 +10,7 @@ import (
 	"github.com/melsonic/skyvault/auth/models"
 )
 
-func NewTokenHandler(w http.ResponseWriter, r *http.Request) {
+func NewAccessTokenHandler(w http.ResponseWriter, r *http.Request) {
 	requestBody, err := io.ReadAll(r.Body)
 	if err != nil {
 		slog.Error("error parsing form", "error", err.Error())

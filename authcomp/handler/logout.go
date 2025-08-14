@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/melsonic/skyvault/auth/db"
@@ -18,6 +20,19 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	responseMessage := models.ResponseMessage{
+		Message: "user logged out successfully",
+	}
+
+	jsonResponseMessage, err := json.Marshal(responseMessage)
+
+	if err != nil {
+		slog.Error("error marshaling json", "error", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("error sending email"))
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("user logged out successfully!"))
+	w.Write(jsonResponseMessage)
 }

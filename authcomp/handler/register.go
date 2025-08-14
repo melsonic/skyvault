@@ -12,7 +12,7 @@ import (
 	"github.com/melsonic/skyvault/auth/util"
 )
 
-func SignUpHandler(w http.ResponseWriter, r *http.Request) {
+func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	requestBody, err := io.ReadAll(r.Body)
 	if err != nil {
 		slog.Error("error reading request body", "error", err.Error())

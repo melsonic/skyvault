@@ -115,11 +115,24 @@ func DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	responseMessage := models.ResponseMessage{
+		Message: "user profile deleted successfully",
+	}
+
+	jsonResponseMessage, err := json.Marshal(responseMessage)
+
+	if err != nil {
+		slog.Error("error marshaling json", "error", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("error sending email"))
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("user profile deleted successfully."))
+	w.Write(jsonResponseMessage)
 }
 
-func ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
+func PasswordResetHandler(w http.ResponseWriter, r *http.Request) {
 	requestBody, err := io.ReadAll(r.Body)
 	if err != nil {
 		slog.Error("error reading request body", "error", err.Error())
@@ -207,12 +220,25 @@ func ResetPasswordHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	responseMessage := models.ResponseMessage{
+		Message: "email sent",
+	}
+
+	jsonResponseMessage, err := json.Marshal(responseMessage)
+
+	if err != nil {
+		slog.Error("error marshaling json", "error", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("error sending email"))
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("email sent"))
+	w.Write(jsonResponseMessage)
 }
 
 func UpdatePasswordFormHandler(w http.ResponseWriter, r *http.Request) {
-	passwordResetID := r.PathValue("hashid")
+	passwordResetID := r.PathValue("hash")
 
 	templateFilePath := filepath.Join("static", "password_reset.html")
 	tmpl, err := template.ParseFiles(templateFilePath)
@@ -231,7 +257,7 @@ func UpdatePasswordFormHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func UpdatePasswordHandler(w http.ResponseWriter, r *http.Request) {
-	passwordResetID := r.PathValue("hashid")
+	passwordResetID := r.PathValue("hash")
 
 	passwordResetRequest, err := db.GetPasswordResetRequest(passwordResetID)
 	if err != nil {
